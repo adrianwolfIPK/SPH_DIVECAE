@@ -14,5 +14,12 @@ fluids = {
         "density": 5.89,
         "viscosity": 0.0000181,
         "isentropic_exp": 7,
+    },
+    "Honey":
+    {
+        "name": "Honey",
+        "density": 1400,
+        "viscosity": 2,
+        "isentropic_exp": 7,
     }
 }

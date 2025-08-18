@@ -1,2 +1,3 @@
 priv/
 sim_data/**
+__pychache__/
