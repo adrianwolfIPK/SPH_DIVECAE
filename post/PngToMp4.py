@@ -1,13 +1,21 @@
+# -*- coding: utf-8 -*-
+
 import cv2
 import os
 import re
 
-image_folder = input("Directory containing your PNGs: ") # folder with images
-title = "movie"
-output_video = os.path.join(image_folder, f"{title}.mp4") # destination file (mp4)
+"""
+Just run programm and provide link to folder with animation.png's (must be default ParaView indexing)
+"""
+
+image_folder = input("Directory containing your PNGs: ")
+file_prefix = input("Filename prefix (e.g., 'normal'): ")
+
+output_video = os.path.join(image_folder, f"{file_prefix}.mp4")
 fps = 24
 
-pattern = re.compile(r"(.*)\.(\d+)\.png")
+# Matches files like normal.0000.png
+pattern = re.compile(rf"({re.escape(file_prefix)})\.(\d+)\.png")
 images = []
 
 for filename in os.listdir(image_folder):
@@ -20,7 +28,7 @@ images.sort(key=lambda x: x[0])
 image_files = [os.path.join(image_folder, f[1]) for f in images]
 
 if not image_files:
-    raise RuntimeError("No matching .png files found!")
+    raise RuntimeError(f"No matching .png files found with prefix '{file_prefix}'!")
 
 frame = cv2.imread(image_files[0])
 height, width, layers = frame.shape

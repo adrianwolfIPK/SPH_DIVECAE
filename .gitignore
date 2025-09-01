@@ -1,3 +1,18 @@
 priv/
 sim_data/**
-__pychache__/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# pyinstall folders
+/build/
+/dist/
+*.spec
+
+# IDE files
+.vscode/
+.idea/
+*.swp
