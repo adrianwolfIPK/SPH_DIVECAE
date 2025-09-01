@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-APP_VERSION = "1.0.1"
-
 import os
 import shutil
 import zipfile
@@ -300,7 +298,7 @@ def unzip_dirs(root_dir, progress_bar=None, app=None):
 import requests
 import tempfile
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.3"
 REPO_OWNER = "adrianwolfIPK"
 REPO_NAME = "SPH_DIVECAE"
 
@@ -327,6 +325,8 @@ def fetch_latest_release():
 def is_frozen():
     return getattr(sys, 'frozen', False)
 
+from packaging import version
+
 def check_for_updates_gui():
     if not is_frozen():
         print("Skipping update check (not running from .exe)")
@@ -334,7 +334,7 @@ def check_for_updates_gui():
 
     try:
         latest_version, download_url = fetch_latest_release()
-        if latest_version > APP_VERSION:
+        if version.parse(latest_version) > version.parse(APP_VERSION):
             answer = messagebox.askyesno("Update Available",
                                          f"A new version ({latest_version}) is available.\nDo you want to update now?")
             if answer:
@@ -342,32 +342,62 @@ def check_for_updates_gui():
     except Exception as e:
         print(f"Update check failed: {e}")
 
-def download_and_replace(download_url):
-    try:
-        # Download to a temp file
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, "update.exe")
+import subprocess
+import textwrap
 
+def download_and_replace(download_url):
+    temp_dir = tempfile.gettempdir()
+    new_exe_path = os.path.join(temp_dir, "new_sort.exe")
+    updater_bat = os.path.join(temp_dir, "update_sort.bat")
+    current_exe = sys.executable.replace('/', '\\')
+    exe_name = os.path.basename(current_exe)
+
+    try:
+        # download latest exe
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
-            with open(temp_path, 'wb') as f:
+            with open(new_exe_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
 
-        # Replace current exe with the downloaded one
-        current_exe = sys.executable
-        os.replace(temp_path, current_exe)
+        # create BAT script
+        bat_content = textwrap.dedent(f"""\
+            @echo off
+            echo --- Running Updater ---
+            echo Waiting for process to close: {exe_name}
 
-        # Restart the app
-        messagebox.showinfo("Update Complete", "The application will now restart.")
-        os.execv(current_exe, sys.argv)
+            :waitloop
+            tasklist | findstr /I "{exe_name}" >nul
+            if not errorlevel 1 (
+                timeout /t 1 >nul
+                goto waitloop
+            )
+
+            echo Replacing old EXE with new one...
+            move /Y "{new_exe_path}" "{current_exe}"
+            echo Restarting application...
+            start "" "{current_exe}"
+
+            echo Done. Exiting...
+            del "%~f0"
+        """)
+
+        with open(updater_bat, "w") as bat_file:
+            bat_file.write(bat_content)
+
+        # run BAT file in new shell and exit current app
+        print(f"Launching updater BAT: {updater_bat}")
+        subprocess.Popen(["cmd.exe", "/c", updater_bat], creationflags=subprocess.CREATE_NEW_CONSOLE)
+
+        # kill current process
+        sys.exit(0)
 
     except Exception as e:
         messagebox.showerror("Update Failed", f"Failed to install update:\n{e}")
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.withdraw()  # hide base window
+    root.withdraw() # hide base window
     check_for_updates_gui()
     root.destroy()
 
