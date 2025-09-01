@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+APP_VERSION = "1.0.0"
+
 import os
 import shutil
 import zipfile
@@ -10,12 +12,6 @@ import tkinter as tk
 from tkinter import filedialog
 import customtkinter as ctk
 
-"""
-Change destination folder name (dest_dir_name) if you want.
-Adjust under "if __name__ == "__main__"" which steps you need.
-
-Run programm and provide the path to the folder containing the downloaded zip files or the already extracted folders.
-"""
 # -------------------- #
 # ------- GUI -------- #
 # -------------------- #
