@@ -9,7 +9,7 @@ import sys
 
 from tqdm import tqdm
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 # -------------------- #
@@ -116,34 +116,6 @@ class MergeApp(ctk.CTk):
 
         self.progress.set(1)
         self.status_label.configure(text="Merge completed!", text_color="green")
-
-# # -------------------- #
-# # -- Configure this -- #
-# # -------------------- #
-# dest_dir_name = "merged" # name of directory where files will be extracted, can be chosen freely
-
-# ------------------------ #
-# -- don't change below -- #
-# ------------------------ #
-# root_dir = str(input("Path of directory with Zip-Folder: ")) # root directory
-# root = tk.Tk()
-# root.withdraw()  # Hide the root window
-# root_dir = filedialog.askdirectory(title="Select Directory with ZIP Files to unpack and merge")
-# if not root_dir:
-#     print("No folder selected. Exiting.")
-#     sys.exit(1)
-
-# fluids_target = os.path.join(root_dir, dest_dir_name, "fluids")
-# walls_target = os.path.join(root_dir, dest_dir_name, "walls")
-# sensors_target = os.path.join(root_dir, dest_dir_name, "sensors")
-# rec_surf_target = os.path.join(root_dir, dest_dir_name, "reconstucted_surfaces")
-
-# destination = os.path.join(root_dir, dest_dir_name)
-
-# os.makedirs(fluids_target, exist_ok=True)
-# os.makedirs(walls_target, exist_ok=True)
-# os.makedirs(sensors_target, exist_ok=True)
-# os.makedirs(rec_surf_target, exist_ok=True)
 
 def copy_fluids(root_dir, target, progress_bar=None, app=None):
     fluid_folders = []
@@ -287,7 +259,6 @@ def unzip_dirs(root_dir, progress_bar=None, app=None):
         
     print("\n -- All ZIPs extracted. -- \n")
 
-
 # def unzip_with_progress(root_dir=root_dir): # deprecated version of unzip_dirs()
 #     zips = [item for item in os.listdir(root_dir) if item.lower().endswith(".zip")]
 #     total = len(zips)
@@ -327,59 +298,78 @@ def unzip_dirs(root_dir, progress_bar=None, app=None):
 # -------------------- #
 
 import requests
+import tempfile
 
-GITHUB_VERSION_URL = "https://github.com/adrianwolfIPK/SPH_DIVECAE/blob/main/post/sort_version.txt"
-EXE_DOWNLOAD_URL = "https://github.com/adrianwolfIPK/SPH_DIVECAE/releases/download/v1.0.0/sort.exe"
+APP_VERSION = "1.0.1"
+REPO_OWNER = "adrianwolfIPK"
+REPO_NAME = "SPH_DIVECAE"
 
-def check_for_update(current_version):
+def fetch_latest_release():
+    # api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/download/{APP_VERSION}/sort.exe"
+    api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
+    resp = requests.get(api_url, timeout=5)
+    resp.raise_for_status()
+
+    data = resp.json()
+    version = data["tag_name"]
+    
+    exe_url = None
+    for asset in data["assets"]:
+        if asset["name"].endswith(".exe"):
+            exe_url = asset["browser_download_url"]
+            break
+
+    if exe_url is None:
+        raise Exception("No .exe file found in the latest release.")
+
+    return version, exe_url
+
+def is_frozen():
+    return getattr(sys, 'frozen', False)
+
+def check_for_updates_gui():
+    if not is_frozen():
+        print("Skipping update check (not running from .exe)")
+        return
+
     try:
-        response = requests.get(GITHUB_VERSION_URL, timeout=5)
-        latest_version = response.text.strip()
-
-        if latest_version > current_version:
-            return latest_version
+        latest_version, download_url = fetch_latest_release()
+        if latest_version > APP_VERSION:
+            answer = messagebox.askyesno("Update Available",
+                                         f"A new version ({latest_version}) is available.\nDo you want to update now?")
+            if answer:
+                download_and_replace(download_url)
     except Exception as e:
-        print("Update check failed:", e)
+        print(f"Update check failed: {e}")
 
-    return None
-
-def download_new_version(download_url, save_path):
+def download_and_replace(download_url):
     try:
-        print("Downloading update...")
+        # Download to a temp file
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, "update.exe")
+
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
-            with open(save_path, "wb") as f:
+            with open(temp_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
-        return True
+
+        # Replace current exe with the downloaded one
+        current_exe = sys.executable
+        os.replace(temp_path, current_exe)
+
+        # Restart the app
+        messagebox.showinfo("Update Complete", "The application will now restart.")
+        os.execv(current_exe, sys.argv)
+
     except Exception as e:
-        print("Download failed:", e)
-        return False
-
-def update_app_if_needed():
-    new_version = check_for_update(APP_VERSION)
-    if new_version:
-        print(f"New version available: {new_version}")
-        
-        exe_path = sys.executable
-        temp_path = exe_path + ".new"
-
-        success = download_new_version(EXE_DOWNLOAD_URL, temp_path)
-        if success:
-            print("Update downloaded. Replacing application...")
-            try:
-                os.replace(temp_path, exe_path)
-                print("Update installed. Restarting app...")
-                os.execv(exe_path, sys.argv)
-            except Exception as e:
-                print("Failed to apply update:", e)
-        else:
-            print("Update download failed.")
-    else:
-        print("You're up to date.")
+        messagebox.showerror("Update Failed", f"Failed to install update:\n{e}")
 
 if __name__ == "__main__":
-    update_app_if_needed()
+    root = tk.Tk()
+    root.withdraw()  # hide base window
+    check_for_updates_gui()
+    root.destroy()
 
     app = MergeApp()
     app.mainloop()
