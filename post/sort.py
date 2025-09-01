@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 import os
 import shutil
@@ -322,6 +322,64 @@ def unzip_dirs(root_dir, progress_bar=None, app=None):
 
 #     print("\n -- All zips extracted. -- \n")
 
+# -------------------- #
+# --- Update Logic --- #
+# -------------------- #
+
+import requests
+
+GITHUB_VERSION_URL = "https://github.com/adrianwolfIPK/SPH_DIVECAE/blob/main/post/sort_version.txt"
+EXE_DOWNLOAD_URL = "https://github.com/adrianwolfIPK/SPH_DIVECAE/releases/download/v1.0.0/sort.exe"
+
+def check_for_update(current_version):
+    try:
+        response = requests.get(GITHUB_VERSION_URL, timeout=5)
+        latest_version = response.text.strip()
+
+        if latest_version > current_version:
+            return latest_version
+    except Exception as e:
+        print("Update check failed:", e)
+
+    return None
+
+def download_new_version(download_url, save_path):
+    try:
+        print("Downloading update...")
+        with requests.get(download_url, stream=True) as r:
+            r.raise_for_status()
+            with open(save_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        return True
+    except Exception as e:
+        print("Download failed:", e)
+        return False
+
+def update_app_if_needed():
+    new_version = check_for_update(APP_VERSION)
+    if new_version:
+        print(f"New version available: {new_version}")
+        
+        exe_path = sys.executable
+        temp_path = exe_path + ".new"
+
+        success = download_new_version(EXE_DOWNLOAD_URL, temp_path)
+        if success:
+            print("Update downloaded. Replacing application...")
+            try:
+                os.replace(temp_path, exe_path)
+                print("Update installed. Restarting app...")
+                os.execv(exe_path, sys.argv)
+            except Exception as e:
+                print("Failed to apply update:", e)
+        else:
+            print("Update download failed.")
+    else:
+        print("You're up to date.")
+
 if __name__ == "__main__":
+    update_app_if_needed()
+
     app = MergeApp()
     app.mainloop()
