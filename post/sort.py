@@ -90,7 +90,7 @@ class MergeApp(ctk.CTk):
 
         self.status_label.configure(text="Status: Unzipping files...")
         self.update_idletasks()
-        unzip_dirs(self.root_dir, progress_bar=self.progress, app=self)
+        extracted_folders = unzip_dirs(self.root_dir, progress_bar=self.progress, app=self)
 
         if self.fluid_var.get():
             self.status_label.configure(text="Status: Copying fluids...")
@@ -111,6 +111,11 @@ class MergeApp(ctk.CTk):
             self.status_label.configure(text="Status: Copying reconstructed surfaces...")
             self.update_idletasks()
             copy_rec_surf(self.root_dir, rec_surf_target, self.progress, self)
+
+        # Clean up extracted directories to save disk space
+        self.status_label.configure(text="Status: Cleaning up temporary directories...")
+        self.update_idletasks()
+        cleanup_extracted_dirs(extracted_folders, self.progress, self)
 
         self.progress.set(1)
         self.status_label.configure(text="Merge completed!", text_color="green")
@@ -157,6 +162,9 @@ def copy_fluids(root_dir, target, progress_bar=None, app=None):
                     timestep0_name = "_".join(parts) + ".vtp"
                     dest_timestep0 = os.path.join(target, timestep0_name)
                     shutil.copy(full_path, dest_timestep0)
+
+                # Delete source file after copying to save disk space
+                os.remove(full_path)
 
         # GUI progress bar
         if progress_bar and app:
@@ -234,9 +242,11 @@ def unzip_dirs(root_dir, progress_bar=None, app=None):
     total = len(zips)
     if not zips:
         print("No ZIP files found.")
-        return
+        return []
 
     print("\n-- Unzipping Data --\n")
+
+    extracted_folders = []
 
     for i, item in enumerate(tqdm(zips, desc="Unzipping", unit="zip", ncols=60)):
         zip_path = os.path.join(root_dir, item)
@@ -246,6 +256,11 @@ def unzip_dirs(root_dir, progress_bar=None, app=None):
         try:
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 zf.extractall(out_folder)
+            # Track the extracted folder
+            extracted_folders.append(out_folder)
+            # Delete the ZIP file after successful extraction to save disk space
+            os.remove(zip_path)
+            tqdm.write(f"Extracted and deleted: {item}")
         except zipfile.BadZipFile:
             tqdm.write(f"Invalid ZIP: {item}")
             continue
@@ -254,8 +269,35 @@ def unzip_dirs(root_dir, progress_bar=None, app=None):
         if progress_bar and app:
             progress_bar.set((i + 1) / total)
             app.update_idletasks()
-        
-    print("\n -- All ZIPs extracted. -- \n")
+
+    print("\n -- All ZIPs extracted and deleted. -- \n")
+    return extracted_folders
+
+def cleanup_extracted_dirs(extracted_dirs, progress_bar=None, app=None):
+    """Delete specified extracted directories after processing to save disk space."""
+    if not extracted_dirs:
+        print("No directories to clean up.")
+        return
+
+    total = len(extracted_dirs)
+    print("\n-- Cleaning up extracted directories --\n")
+
+    for i, dir_path in enumerate(tqdm(extracted_dirs, desc="Cleaning up", unit="dir", ncols=60)):
+        try:
+            if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                shutil.rmtree(dir_path)
+                tqdm.write(f"Deleted: {os.path.basename(dir_path)}")
+            else:
+                tqdm.write(f"Skipped (not found): {os.path.basename(dir_path)}")
+        except Exception as e:
+            tqdm.write(f"Error deleting {os.path.basename(dir_path)}: {e}")
+
+        # GUI progress bar
+        if progress_bar and app:
+            progress_bar.set((i + 1) / total)
+            app.update_idletasks()
+
+    print("\n -- Cleanup completed. -- \n")
 
 # def unzip_with_progress(root_dir=root_dir): # deprecated version of unzip_dirs()
 #     zips = [item for item in os.listdir(root_dir) if item.lower().endswith(".zip")]

@@ -12,6 +12,9 @@ __pycache__/
 /dist/
 *.spec
 
+# imports
+/ffmpeg/
+
 # IDE files
 .vscode/
 .idea/
