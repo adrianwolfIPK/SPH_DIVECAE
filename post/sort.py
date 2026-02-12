@@ -77,261 +77,170 @@ class MergeApp(ctk.CTk):
 
         # define destination folders
         dest_dir_name = "merged"
-        fluids_target = os.path.join(self.root_dir, dest_dir_name, "fluids")
-        walls_target = os.path.join(self.root_dir, dest_dir_name, "walls")
-        sensors_target = os.path.join(self.root_dir, dest_dir_name, "sensors")
-        rec_surf_target = os.path.join(self.root_dir, dest_dir_name, "reconstucted_surfaces")
+        targets = {
+            "fluids": os.path.join(self.root_dir, dest_dir_name, "fluids"),
+            "walls": os.path.join(self.root_dir, dest_dir_name, "walls"),
+            "sensors": os.path.join(self.root_dir, dest_dir_name, "sensors"),
+            "rec_surf": os.path.join(self.root_dir, dest_dir_name, "reconstucted_surfaces"),
+        }
 
         # create dirs
-        os.makedirs(fluids_target, exist_ok=True)
-        os.makedirs(walls_target, exist_ok=True)
-        os.makedirs(sensors_target, exist_ok=True)
-        os.makedirs(rec_surf_target, exist_ok=True)
+        for t in targets.values():
+            os.makedirs(t, exist_ok=True)
 
-        self.status_label.configure(text="Status: Unzipping files...")
+        # get checkbox selections
+        selections = {
+            "fluids": self.fluid_var.get(),
+            "walls": self.wall_var.get(),
+            "sensors": self.sensor_var.get(),
+            "rec_surf": self.recsurf_var.get(),
+        }
+
+        self.status_label.configure(text="Status: Processing ZIPs...")
         self.update_idletasks()
-        extracted_folders = unzip_dirs(self.root_dir, progress_bar=self.progress, app=self)
-
-        if self.fluid_var.get():
-            self.status_label.configure(text="Status: Copying fluids...")
-            self.update_idletasks()
-            copy_fluids(self.root_dir, fluids_target, self.progress, self)
-
-        if self.wall_var.get():
-            self.status_label.configure(text="Status: Copying walls...")
-            self.update_idletasks()
-            copy_walls(self.root_dir, walls_target, self.progress, self)
-
-        if self.sensor_var.get():
-            self.status_label.configure(text="Status: Copying sensors...")
-            self.update_idletasks()
-            copy_sensors(self.root_dir, sensors_target, self.progress, self)
-
-        if self.recsurf_var.get():
-            self.status_label.configure(text="Status: Copying reconstructed surfaces...")
-            self.update_idletasks()
-            copy_rec_surf(self.root_dir, rec_surf_target, self.progress, self)
-
-        # Clean up extracted directories to save disk space
-        self.status_label.configure(text="Status: Cleaning up temporary directories...")
-        self.update_idletasks()
-        cleanup_extracted_dirs(extracted_folders, self.progress, self)
+        process_and_merge(self.root_dir, targets, selections,
+                          progress_bar=self.progress, app=self)
 
         self.progress.set(1)
         self.status_label.configure(text="Merge completed!", text_color="green")
 
-def copy_fluids(root_dir, target, progress_bar=None, app=None):
-    fluid_folders = []
-    for dir in os.listdir(root_dir):
-        fluids_path = os.path.join(root_dir, dir, "Fluids")
-        if os.path.isdir(fluids_path):
-            fluid_folders.append(fluids_path)
-
-    total = len(fluid_folders)
-    if total == 0:
+def move_fluids_from_folder(folder_path, target):
+    """Move fluid files from a single extracted folder to the merged target."""
+    fluids_path = os.path.join(folder_path, "Fluids")
+    if not os.path.isdir(fluids_path):
         return
 
-    for i, fluids_path in enumerate(tqdm(fluid_folders, desc="Copying Fluids", ncols=60)):
-        for fluid_dir in os.listdir(fluids_path):
-            subfolder_path = os.path.join(fluids_path, fluid_dir)
-            if not os.path.isdir(subfolder_path):
+    for fluid_dir in os.listdir(fluids_path):
+        subfolder_path = os.path.join(fluids_path, fluid_dir)
+        if not os.path.isdir(subfolder_path):
+            continue
+
+        for f in os.listdir(subfolder_path):
+            if not f.endswith("_0.vtp"):
                 continue
 
-            for f in os.listdir(subfolder_path):
-                if not f.endswith("_0.vtp"):
-                    continue
+            full_path = os.path.join(subfolder_path, f)
+            base = f[:-6]
+            parts = base.split("_")
 
-                full_path = os.path.join(subfolder_path, f)
-                base = f[:-6]
-                parts = base.split("_")
+            if len(parts) < 2:
+                continue
 
-                if len(parts) < 2:
-                    continue
+            timestep_str = parts[-1]
+            try:
+                timestep = int(timestep_str)
+            except ValueError:
+                continue
 
-                timestep_str = parts[-1]
-                try:
-                    timestep = int(timestep_str)
-                except ValueError:
-                    continue
+            dest_normal = os.path.join(target, f"{base}.vtp")
+            shutil.move(full_path, dest_normal)
 
-                dest_normal = os.path.join(target, f"{base}.vtp")
-                shutil.copy(full_path, dest_normal)
+            if timestep == 1:
+                parts[-1] = "0"
+                timestep0_name = "_".join(parts) + ".vtp"
+                dest_timestep0 = os.path.join(target, timestep0_name)
+                shutil.copy(dest_normal, dest_timestep0)
 
-                if timestep == 1:
-                    parts[-1] = "0"
-                    timestep0_name = "_".join(parts) + ".vtp"
-                    dest_timestep0 = os.path.join(target, timestep0_name)
-                    shutil.copy(full_path, dest_timestep0)
-
-                # Delete source file after copying to save disk space
-                os.remove(full_path)
-
-        # GUI progress bar
-        if progress_bar and app:
-            progress_bar.set((i + 1) / total)
-            app.update_idletasks()
-
-def copy_walls(root_dir, target, progress_bar=None, app=None):
-    wall_folders = []
-    for dir in os.listdir(root_dir):
-        walls_path = os.path.join(root_dir, dir, "Walls")
-        if os.path.isdir(walls_path):
-            wall_folders.append(walls_path)
-
-    total = len(wall_folders)
-    if total == 0:
+def move_walls_from_folder(folder_path, target):
+    """Move wall files from a single extracted folder to the merged target."""
+    walls_path = os.path.join(folder_path, "Walls")
+    if not os.path.isdir(walls_path):
         return
 
-    for i, walls_path in enumerate(tqdm(wall_folders, desc="Copying Walls", ncols=60)):
-        for f in os.listdir(walls_path):
-            if f.endswith(".vtu"):
-                src = os.path.join(walls_path, f)
-                dst = os.path.join(target, f)
-                shutil.move(src, dst)
-
-        if progress_bar and app:
-            progress_bar.set((i + 1) / total)
-            app.update_idletasks()
-
-def copy_sensors(root_dir, target, progress_bar=None, app=None):
-    sensor_folders = []
-    for dir in os.listdir(root_dir):
-        sensors_path = os.path.join(root_dir, dir, "Sensors")
-        if os.path.isdir(sensors_path):
-            sensor_folders.append(sensors_path)
-
-    total = len(sensor_folders)
-    if total == 0:
-        return
-
-    for i, sensors_path in enumerate(tqdm(sensor_folders, desc="Copying Sensors", ncols=60)):
-        for f in os.listdir(sensors_path):
-            src = os.path.join(sensors_path, f)
+    for f in os.listdir(walls_path):
+        if f.endswith(".vtu"):
+            src = os.path.join(walls_path, f)
             dst = os.path.join(target, f)
-            if os.path.isfile(src):
-                shutil.move(src, dst)
+            shutil.move(src, dst)
 
-        if progress_bar and app:
-            progress_bar.set((i + 1) / total)
-            app.update_idletasks()
-
-def copy_rec_surf(root_dir, target, progress_bar=None, app=None):
-    recsurf_folders = []
-    for dir in os.listdir(root_dir):
-        rec_surf_path = os.path.join(root_dir, dir, "Reconstructed_Surfaces")
-        if os.path.isdir(rec_surf_path):
-            recsurf_folders.append(rec_surf_path)
-
-    total = len(recsurf_folders)
-    if total == 0:
+def move_sensors_from_folder(folder_path, target):
+    """Move sensor files from a single extracted folder to the merged target."""
+    sensors_path = os.path.join(folder_path, "Sensors")
+    if not os.path.isdir(sensors_path):
         return
 
-    for i, rec_surf_path in enumerate(tqdm(recsurf_folders, desc="Copying Reconstructed Surfaces", ncols=60)):
-        for f in os.listdir(rec_surf_path):
-            if f.endswith(".vtu"):
-                src = os.path.join(rec_surf_path, f)
-                dst = os.path.join(target, f)
-                shutil.move(src, dst)
+    for f in os.listdir(sensors_path):
+        src = os.path.join(sensors_path, f)
+        dst = os.path.join(target, f)
+        if os.path.isfile(src):
+            shutil.move(src, dst)
 
-        if progress_bar and app:
-            progress_bar.set((i + 1) / total)
-            app.update_idletasks()
+def move_rec_surf_from_folder(folder_path, target):
+    """Move reconstructed surface files from a single extracted folder to the merged target."""
+    rec_surf_path = os.path.join(folder_path, "Reconstructed_Surfaces")
+    if not os.path.isdir(rec_surf_path):
+        return
 
-def unzip_dirs(root_dir, progress_bar=None, app=None):
-    zips = sorted([item for item in os.listdir(root_dir) if item.lower().endswith(".zip")])
+    for f in os.listdir(rec_surf_path):
+        if f.endswith(".vtu"):
+            src = os.path.join(rec_surf_path, f)
+            dst = os.path.join(target, f)
+            shutil.move(src, dst)
+
+def move_data_from_folder(folder, targets, selections):
+    """Move selected data from an extracted folder into merged targets."""
+    if selections.get("fluids"):
+        move_fluids_from_folder(folder, targets["fluids"])
+    if selections.get("walls"):
+        move_walls_from_folder(folder, targets["walls"])
+    if selections.get("sensors"):
+        move_sensors_from_folder(folder, targets["sensors"])
+    if selections.get("rec_surf"):
+        move_rec_surf_from_folder(folder, targets["rec_surf"])
+
+def process_and_merge(root_dir, targets, selections, progress_bar=None, app=None):
+    """Process each ZIP one at a time: extract -> move data -> delete folder -> delete ZIP."""
+    dest_dir_name = "merged"
+
+    # Resume: recover leftover folders from a previous interrupted run
+    # Move any remaining data to merged first, then delete the folder
+    for item in os.listdir(root_dir):
+        item_path = os.path.join(root_dir, item)
+        if os.path.isdir(item_path) and item != dest_dir_name:
+            print(f"Recovering leftover folder: {item}")
+            move_data_from_folder(item_path, targets, selections)
+            shutil.rmtree(item_path)
+            print(f"Recovered and deleted: {item}")
+
+    zips = sorted([item for item in os.listdir(root_dir)
+                   if item.lower().endswith(".zip")])
     total = len(zips)
     if not zips:
         print("No ZIP files found.")
-        return []
+        return
 
-    print("\n-- Unzipping Data --\n")
+    print(f"\n-- Processing {total} ZIPs --\n")
 
-    extracted_folders = []
-
-    for i, item in enumerate(tqdm(zips, desc="Unzipping", unit="zip", ncols=60)):
+    for i, item in enumerate(tqdm(zips, desc="Processing",
+                                  unit="zip", ncols=60)):
         zip_path = os.path.join(root_dir, item)
         out_folder = os.path.join(root_dir, os.path.splitext(item)[0])
         os.makedirs(out_folder, exist_ok=True)
 
+        # 1. Extract ZIP (keep ZIP as backup until data is safe)
         try:
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 zf.extractall(out_folder)
-            # Track the extracted folder
-            extracted_folders.append(out_folder)
-            # Delete the ZIP file after successful extraction to save disk space
-            os.remove(zip_path)
-            tqdm.write(f"Extracted and deleted: {item}")
         except zipfile.BadZipFile:
             tqdm.write(f"Invalid ZIP: {item}")
             continue
 
-        # GUI progress bar
+        # 2. Move data to merged folders
+        move_data_from_folder(out_folder, targets, selections)
+
+        # 3. Delete the extracted folder
+        shutil.rmtree(out_folder)
+
+        # 4. Delete ZIP only after data is safely in merged/
+        os.remove(zip_path)
+
+        tqdm.write(f"Done: {item}")
+
         if progress_bar and app:
             progress_bar.set((i + 1) / total)
             app.update_idletasks()
 
-    print("\n -- All ZIPs extracted and deleted. -- \n")
-    return extracted_folders
-
-def cleanup_extracted_dirs(extracted_dirs, progress_bar=None, app=None):
-    """Delete specified extracted directories after processing to save disk space."""
-    if not extracted_dirs:
-        print("No directories to clean up.")
-        return
-
-    total = len(extracted_dirs)
-    print("\n-- Cleaning up extracted directories --\n")
-
-    for i, dir_path in enumerate(tqdm(extracted_dirs, desc="Cleaning up", unit="dir", ncols=60)):
-        try:
-            if os.path.exists(dir_path) and os.path.isdir(dir_path):
-                shutil.rmtree(dir_path)
-                tqdm.write(f"Deleted: {os.path.basename(dir_path)}")
-            else:
-                tqdm.write(f"Skipped (not found): {os.path.basename(dir_path)}")
-        except Exception as e:
-            tqdm.write(f"Error deleting {os.path.basename(dir_path)}: {e}")
-
-        # GUI progress bar
-        if progress_bar and app:
-            progress_bar.set((i + 1) / total)
-            app.update_idletasks()
-
-    print("\n -- Cleanup completed. -- \n")
-
-# def unzip_with_progress(root_dir=root_dir): # deprecated version of unzip_dirs()
-#     zips = [item for item in os.listdir(root_dir) if item.lower().endswith(".zip")]
-#     total = len(zips)
-#     if total == 0:
-#         print("No ZIPs found.")
-#         return
-
-#     bar_width = 100
-
-#     print("\n-- Starting to unzip Data --")
-#     for idx, item in enumerate(zips, start=1):
-#         zip_path = os.path.join(root_dir, item)
-#         out_folder = os.path.join(root_dir, os.path.splitext(item)[0])
-#         os.makedirs(out_folder, exist_ok=True)
-
-#         # print(f"\nUnzipping {item} into {out_folder}...")
-
-#         try:
-#             with zipfile.ZipFile(zip_path, "r") as zf:
-#                 zf.extractall(out_folder)
-#             print(f"Done: {item}")
-#         except zipfile.BadZipFile:
-#             print(f"Error: {item} is not a valid zip file.")
-#         finally:
-#             # update progress bar
-#             done = idx / total
-#             filled = int(bar_width * done)
-#             bar = "=" * filled + "-" * (bar_width - filled)
-#             percent_str = f"{done * 100:5.1f}%"
-#             sys.stdout.write(f"\rProgress: [{bar}] {percent_str}")
-#             sys.stdout.flush()
-
-#     print("\n -- All zips extracted. -- \n")
+    print(f"\n -- All {total} ZIPs processed. -- \n")
 
 # -------------------- #
 # --- Update Logic --- #
@@ -340,19 +249,18 @@ def cleanup_extracted_dirs(extracted_dirs, progress_bar=None, app=None):
 import requests
 import tempfile
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.1.0"
 REPO_OWNER = "adrianwolfIPK"
 REPO_NAME = "SPH_DIVECAE"
 
 def fetch_latest_release():
-    # api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/download/{APP_VERSION}/sort.exe"
     api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
     resp = requests.get(api_url, timeout=5)
     resp.raise_for_status()
 
     data = resp.json()
     version = data["tag_name"]
-    
+
     exe_url = None
     for asset in data["assets"]:
         if asset["name"].endswith(".exe"):
