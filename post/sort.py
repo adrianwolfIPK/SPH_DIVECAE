@@ -249,7 +249,7 @@ def process_and_merge(root_dir, targets, selections, progress_bar=None, app=None
 import requests
 import tempfile
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.0.9"
 REPO_OWNER = "adrianwolfIPK"
 REPO_NAME = "SPH_DIVECAE"
 
@@ -261,16 +261,16 @@ def fetch_latest_release():
     data = resp.json()
     version = data["tag_name"]
 
-    exe_url = None
+    zip_url = None
     for asset in data["assets"]:
-        if asset["name"].endswith(".exe"):
-            exe_url = asset["browser_download_url"]
+        if asset["name"].endswith(".zip"):
+            zip_url = asset["browser_download_url"]
             break
 
-    if exe_url is None:
-        raise Exception("No .exe file found in the latest release.")
+    if zip_url is None:
+        raise Exception("No .zip file found in the latest release.")
 
-    return version, exe_url
+    return version, zip_url
 
 def is_frozen():
     return getattr(sys, 'frozen', False)
@@ -297,20 +297,24 @@ import textwrap
 
 def download_and_replace(download_url):
     temp_dir = tempfile.gettempdir()
-    new_exe_path = os.path.join(temp_dir, "new_sort.exe")
+    new_zip_path = os.path.join(temp_dir, "new_sort.zip")
+    extract_dir = os.path.join(temp_dir, "new_sort_extracted")
     updater_bat = os.path.join(temp_dir, "update_sort.bat")
     current_exe = sys.executable.replace('/', '\\')
     exe_name = os.path.basename(current_exe)
+    app_folder = os.path.dirname(current_exe)          # e.g. C:\tools\sort
+    app_folder_name = os.path.basename(app_folder)     # e.g. sort
 
     try:
-        # download latest exe
+        # download latest zip
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
-            with open(new_exe_path, "wb") as f:
+            with open(new_zip_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
 
-        # create BAT script
+        # BAT: wait for app to close, extract zip next to current folder,
+        # swap old folder for new one, restart.
         bat_content = textwrap.dedent(f"""\
             @echo off
             echo --- Running Updater ---
@@ -323,23 +327,38 @@ def download_and_replace(download_url):
                 goto waitloop
             )
 
-            echo Replacing old EXE with new one...
-            move /Y "{new_exe_path}" "{current_exe}"
+            echo Extracting new version...
+            if exist "{extract_dir}" rmdir /S /Q "{extract_dir}"
+            powershell -Command "Expand-Archive -LiteralPath '{new_zip_path}' -DestinationPath '{extract_dir}' -Force"
+            if errorlevel 1 (
+                echo Extraction failed!
+                pause
+                del "%~f0"
+                exit /b 1
+            )
+
+            echo Replacing old folder...
+            rmdir /S /Q "{app_folder}"
+            move "{extract_dir}\\{app_folder_name}" "{app_folder}"
+            if errorlevel 1 (
+                echo Move failed - restoring from extract dir...
+                move "{extract_dir}" "{app_folder}"
+            )
+
             echo Restarting application...
             start "" "{current_exe}"
 
-            echo Done. Exiting...
+            echo Done. Cleaning up...
+            del "{new_zip_path}" 2>nul
             del "%~f0"
         """)
 
         with open(updater_bat, "w") as bat_file:
             bat_file.write(bat_content)
 
-        # run BAT file in new shell and exit current app
         print(f"Launching updater BAT: {updater_bat}")
         subprocess.Popen(["cmd.exe", "/c", updater_bat], creationflags=subprocess.CREATE_NEW_CONSOLE)
 
-        # kill current process
         sys.exit(0)
 
     except Exception as e:
